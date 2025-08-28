@@ -20,9 +20,17 @@ import {
 } from '@/components/ui/breadcrumb'
 import { Separator } from '@/components/ui/separator'
 import { Globe } from 'lucide-react'
+import { DataService } from '@/lib/data-service'
+import { Property, Market, Client } from '@/lib/supabase'
+
 
 // Set your Mapbox access token here
 mapboxgl.accessToken = process.env.NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN || '';
+
+interface MapData {
+  properties: Property[]
+  markets: (Market & { client?: Client })[]
+}
 
 export default function MapPage() {
   const mapContainer = useRef<HTMLDivElement>(null)
@@ -31,8 +39,42 @@ export default function MapPage() {
   const [lat, setLat] = useState(35.014)   // Default latitude for US center
   const [zoom, setZoom] = useState(1.46)   // Default zoom to show full globe
   const [mapLoaded, setMapLoaded] = useState(false)
+  const [mapData, setMapData] = useState<MapData>({ properties: [], markets: [] })
+  const [loading, setLoading] = useState(true)
 
   useEffect(() => {
+    const fetchMapData = async () => {
+      try {
+        const [properties, markets, clients] = await Promise.all([
+          DataService.getProperties(),
+          DataService.getMarkets(),
+          DataService.getClients()
+        ])
+
+        // Combine markets with client data
+        const marketsWithClients = markets.map(market => ({
+          ...market,
+          client: clients.find(client => client.id === market.client_id)
+        }))
+
+        console.log('Map data loaded:', { propertiesCount: properties.length, marketsCount: markets.length })
+        setMapData({ properties, markets: marketsWithClients })
+      } catch (error) {
+        console.error('Error fetching map data:', error)
+      } finally {
+        setLoading(false)
+      }
+    }
+
+    fetchMapData()
+  }, [])
+
+  useEffect(() => {
+    // Wait for map data to load and DOM to be ready
+    if (loading || !mapContainer.current) {
+      return
+    }
+
     // Prevent multiple initializations
     if (map.current) {
       console.log('Map already exists, skipping initialization')
@@ -80,6 +122,7 @@ export default function MapPage() {
         setMapLoaded(true)
         if (map.current) {
           map.current.resize()
+          addMarkersToMap()
         }
       })
 
@@ -122,7 +165,68 @@ export default function MapPage() {
       console.error('Error initializing map:', error)
       return
     }
-  }, []) // Remove dependencies to prevent re-initialization
+  }, [loading]) // Add loading dependency to ensure DOM is ready
+
+  // Re-add markers when map data changes
+  useEffect(() => {
+    if (mapLoaded && map.current && mapData.properties.length > 0) {
+      addMarkersToMap()
+    }
+  }, [mapLoaded, mapData.properties.length])
+
+  const addMarkersToMap = () => {
+    if (!map.current || !mapLoaded) return
+
+    console.log('Adding markers to map page:', mapData.properties.length, 'properties')
+    console.log('Properties with coordinates:', mapData.properties.filter(p => p.lat && p.lng).length)
+
+    // Add property markers
+    mapData.properties.forEach((property) => {
+      if (property.lat && property.lng && map.current) {
+        // Create property marker
+        const markerEl = document.createElement('div')
+        markerEl.className = 'property-marker'
+        markerEl.style.width = '20px'
+        markerEl.style.height = '20px'
+        markerEl.style.borderRadius = '50%'
+        markerEl.style.backgroundColor = '#3b82f6'
+        markerEl.style.border = '2px solid white'
+        markerEl.style.cursor = 'pointer'
+        markerEl.style.boxShadow = '0 2px 4px rgba(0,0,0,0.3)'
+
+        // Create popup for property
+        const popup = new mapboxgl.Popup({ offset: 25 }).setHTML(`
+          <div class="p-2">
+            <h3 class="font-semibold text-sm">${property.title || property.address_line || 'Untitled Property'}</h3>
+            <p class="text-xs text-gray-600">${property.city}, ${property.state}</p>
+            ${property.base_rent_psf ? `<p class="text-xs text-gray-600">$${property.base_rent_psf}/sq ft</p>` : ''}
+            <p class="text-xs text-gray-500">Phase: ${property.phase}</p>
+          </div>
+        `)
+
+        // Add marker to map
+        new mapboxgl.Marker(markerEl)
+          .setLngLat([property.lng, property.lat])
+          .setPopup(popup)
+          .addTo(map.current)
+      }
+    })
+
+    console.log(`Added ${mapData.properties.filter(p => p.lat && p.lng).length} property markers to the map`)
+  }
+
+  if (loading) {
+    return (
+      <SidebarProvider>
+        <AppSidebar />
+        <SidebarInset>
+          <div className="flex items-center justify-center h-screen">
+            <div className="text-lg">Loading map data...</div>
+          </div>
+        </SidebarInset>
+      </SidebarProvider>
+    )
+  }
 
   return (
     <SidebarProvider>
@@ -154,9 +258,13 @@ export default function MapPage() {
               <h1 className="text-2xl font-bold">Interactive Map</h1>
             </div>
           </div>
+          
+
+          
           <p className="text-muted-foreground mb-4">
-            Explore properties, markets, and geographic data on an interactive map
+            Explore properties, markets, and geographic data on an interactive map. Click on markers to view details.
           </p>
+          
           <div className="flex-1 min-h-0 rounded-lg overflow-hidden border bg-gray-50">
             <div ref={mapContainer} className="w-full h-full" />
             {(!mapboxgl.accessToken || mapboxgl.accessToken === 'YOUR_MAPBOX_ACCESS_TOKEN_HERE') && !mapLoaded ? (

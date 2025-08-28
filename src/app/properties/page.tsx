@@ -27,12 +27,23 @@ import { Plus, MapPin, Building2, DollarSign, Eye, Edit, Trash2 } from 'lucide-r
 import { ViewToggle } from '@/components/view-toggle'
 import { DataTable } from '@/components/ui/data-table'
 import { columns } from './columns'
+import { DeleteConfirmationModal } from '@/components/ui/delete-confirmation-modal'
 
 export default function PropertiesPage() {
   const router = useRouter()
   const [properties, setProperties] = useState<Property[]>([])
   const [loading, setLoading] = useState(true)
   const [view, setView] = useState<'cards' | 'table'>('cards')
+  const [deleteModal, setDeleteModal] = useState<{
+    isOpen: boolean
+    propertyId: string
+    propertyName: string
+  }>({
+    isOpen: false,
+    propertyId: '',
+    propertyName: ''
+  })
+  const [isDeleting, setIsDeleting] = useState(false)
 
   useEffect(() => {
     const fetchProperties = async () => {
@@ -49,23 +60,41 @@ export default function PropertiesPage() {
     fetchProperties()
   }, [])
 
-  const handleDelete = async (propertyId: string) => {
-    if (!confirm('Are you sure you want to delete this property?')) return
-    
+  const openDeleteModal = (propertyId: string, propertyName: string) => {
+    setDeleteModal({
+      isOpen: true,
+      propertyId,
+      propertyName
+    })
+  }
+
+  const closeDeleteModal = () => {
+    setDeleteModal({
+      isOpen: false,
+      propertyId: '',
+      propertyName: ''
+    })
+  }
+
+  const confirmDelete = async () => {
+    setIsDeleting(true)
     try {
       const { error } = await supabase
         .from('properties')
         .delete()
-        .eq('id', propertyId)
+        .eq('id', deleteModal.propertyId)
       
       if (error) throw error
       
       // Refresh the properties list
-      const updatedProperties = properties.filter(p => p.id !== propertyId)
+      const updatedProperties = properties.filter(p => p.id !== deleteModal.propertyId)
       setProperties(updatedProperties)
+      closeDeleteModal()
     } catch (error) {
       console.error('Error deleting property:', error)
       alert('Failed to delete property')
+    } finally {
+      setIsDeleting(false)
     }
   }
 
@@ -180,7 +209,7 @@ export default function PropertiesPage() {
                               variant="subtle" 
                               size="icon"
                               className="text-red-600 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-950/20 h-8 w-8"
-                              onClick={() => handleDelete(property.id)}
+                              onClick={() => openDeleteModal(property.id, property.title || property.address_line || 'Untitled Property')}
                               title="Delete"
                             >
                               <Trash2 className="h-4 w-4" />
@@ -218,6 +247,16 @@ export default function PropertiesPage() {
             </CardContent>
           </Card>
         </div>
+
+        <DeleteConfirmationModal
+          isOpen={deleteModal.isOpen}
+          onClose={closeDeleteModal}
+          onConfirm={confirmDelete}
+          title="Delete Property"
+          description="Are you sure you want to delete this property? This action cannot be undone."
+          itemName={deleteModal.propertyName}
+          isLoading={isDeleting}
+        />
       </SidebarInset>
     </SidebarProvider>
   )

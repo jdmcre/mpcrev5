@@ -1,7 +1,7 @@
 "use client"
 
 import { ColumnDef } from "@tanstack/react-table"
-import { ArrowUpDown, MoreHorizontal, Eye, Edit, Trash2 } from "lucide-react"
+import { ArrowUpDown, MoreHorizontal, Eye, Edit, Trash2, Users } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import {
   DropdownMenu,
@@ -11,9 +11,14 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { Market } from "@/lib/supabase"
+import { Market, Client } from "@/lib/supabase"
 
-export const columns: ColumnDef<Market>[] = [
+interface MarketWithDetails extends Market {
+  client?: Client
+  propertyCount: number
+}
+
+export const columns: ColumnDef<MarketWithDetails>[] = [
   {
     accessorKey: "name",
     header: ({ column }) => {
@@ -36,12 +41,35 @@ export const columns: ColumnDef<Market>[] = [
     },
   },
   {
-    accessorKey: "client_id",
-    header: "Client ID",
+    accessorKey: "client",
+    header: "Client",
+    cell: ({ row }) => {
+      const client = row.original.client
+      return (
+        <div className="text-sm">
+          {client?.name || 'Unknown Client'}
+        </div>
+      )
+    },
+  },
+  {
+    accessorKey: "propertyCount",
+    header: ({ column }) => {
+      return (
+        <Button
+          variant="ghost"
+          onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
+        >
+          <Users className="mr-2 h-4 w-4" />
+          Properties
+          <ArrowUpDown className="ml-2 h-4 w-4" />
+        </Button>
+      )
+    },
     cell: ({ row }) => {
       return (
-        <div className="text-sm font-mono">
-          {row.getValue("client_id")}
+        <div className="text-sm font-medium">
+          {row.original.propertyCount}
         </div>
       )
     },

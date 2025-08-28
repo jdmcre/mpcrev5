@@ -64,6 +64,22 @@ export class DataService {
     return data || []
   }
 
+  // Fetch markets by client
+  static async getMarketsByClient(clientId: string): Promise<Market[]> {
+    const { data, error } = await supabase
+      .from('markets')
+      .select('*')
+      .eq('client_id', clientId)
+      .order('name')
+    
+    if (error) {
+      console.error('Error fetching markets by client:', error)
+      return []
+    }
+    
+    return data || []
+  }
+
   // Fetch single market by ID
   static async getMarket(id: string): Promise<Market | null> {
     const { data, error } = await supabase
@@ -209,7 +225,7 @@ export class DataService {
     return data
   }
 
-  // Fetch dashboard stats
+  // Fetch dashboard stats with enhanced market property counts
   static async getDashboardStats() {
     const [clients, markets, properties, users] = await Promise.all([
       this.getClients(),
@@ -218,12 +234,71 @@ export class DataService {
       this.getUsers()
     ])
 
+    // Get property counts per market
+    const marketPropertyCounts = await Promise.all(
+      markets.map(async (market) => {
+        const propertyCount = await this.getPropertiesByMarket(market.id)
+        return {
+          marketId: market.id,
+          propertyCount: propertyCount.length
+        }
+      })
+    )
+
     return {
       totalClients: clients.length,
       totalMarkets: markets.length,
       totalProperties: properties.length,
       totalUsers: users.length,
-      recentProperties: properties.slice(0, 5)
+      recentProperties: properties.slice(0, 5),
+      marketPropertyCounts
     }
+  }
+
+  // Fetch enhanced market data with property counts and client info
+  static async getMarketsWithDetails(): Promise<(Market & { client?: Client; propertyCount: number })[]> {
+    const [markets, clients] = await Promise.all([
+      this.getMarkets(),
+      this.getClients()
+    ])
+
+    const marketsWithDetails = await Promise.all(
+      markets.map(async (market) => {
+        const client = clients.find(c => c.id === market.client_id)
+        const propertyCount = await this.getPropertiesByMarket(market.id)
+        
+        return {
+          ...market,
+          client,
+          propertyCount: propertyCount.length
+        }
+      })
+    )
+
+    return marketsWithDetails
+  }
+
+  // Fetch enhanced client data with market and property counts
+  static async getClientsWithDetails(): Promise<(Client & { marketCount: number; propertyCount: number })[]> {
+    const [clients, markets, properties] = await Promise.all([
+      this.getClients(),
+      this.getMarkets(),
+      this.getProperties()
+    ])
+
+    const clientsWithDetails = clients.map(client => {
+      const clientMarkets = markets.filter(m => m.client_id === client.id)
+      const clientProperties = properties.filter(p => 
+        clientMarkets.some(m => m.id === p.market_id)
+      )
+
+      return {
+        ...client,
+        marketCount: clientMarkets.length,
+        propertyCount: clientProperties.length
+      }
+    })
+
+    return clientsWithDetails
   }
 }

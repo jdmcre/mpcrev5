@@ -28,12 +28,23 @@ import { Plus, UserCheck, Mail, Phone, Eye, Edit, Trash2 } from 'lucide-react'
 import { ViewToggle } from '@/components/view-toggle'
 import { DataTable } from '@/components/ui/data-table'
 import { columns } from './columns'
+import { DeleteConfirmationModal } from '@/components/ui/delete-confirmation-modal'
 
 export default function UsersPage() {
   const router = useRouter()
   const [users, setUsers] = useState<User[]>([])
   const [loading, setLoading] = useState(true)
   const [view, setView] = useState<'cards' | 'table'>('cards')
+  const [deleteModal, setDeleteModal] = useState<{
+    isOpen: boolean
+    userId: string
+    userName: string
+  }>({
+    isOpen: false,
+    userId: '',
+    userName: ''
+  })
+  const [isDeleting, setIsDeleting] = useState(false)
 
   useEffect(() => {
     const fetchUsers = async () => {
@@ -50,23 +61,41 @@ export default function UsersPage() {
     fetchUsers()
   }, [])
 
-  const handleDelete = async (userId: string) => {
-    if (!confirm('Are you sure you want to delete this user?')) return
-    
+  const openDeleteModal = (userId: string, userName: string) => {
+    setDeleteModal({
+      isOpen: true,
+      userId,
+      userName
+    })
+  }
+
+  const closeDeleteModal = () => {
+    setDeleteModal({
+      isOpen: false,
+      userId: '',
+      userName: ''
+    })
+  }
+
+  const confirmDelete = async () => {
+    setIsDeleting(true)
     try {
       const { error } = await supabase
         .from('users')
         .delete()
-        .eq('id', userId)
+        .eq('id', deleteModal.userId)
       
       if (error) throw error
       
       // Refresh the users list
-      const updatedUsers = users.filter(u => u.id !== userId)
+      const updatedUsers = users.filter(u => u.id !== deleteModal.userId)
       setUsers(updatedUsers)
+      closeDeleteModal()
     } catch (error) {
       console.error('Error deleting user:', error)
       alert('Failed to delete user')
+    } finally {
+      setIsDeleting(false)
     }
   }
 
@@ -197,7 +226,7 @@ export default function UsersPage() {
                               variant="subtle" 
                               size="icon"
                               className="text-red-600 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-950/20"
-                              onClick={() => handleDelete(user.id)}
+                              onClick={() => openDeleteModal(user.id, user.full_name || 'Unnamed User')}
                               title="Delete"
                             >
                               <Trash2 className="h-4 w-4" />
@@ -233,6 +262,16 @@ export default function UsersPage() {
             </CardContent>
           </Card>
         </div>
+
+        <DeleteConfirmationModal
+          isOpen={deleteModal.isOpen}
+          onClose={closeDeleteModal}
+          onConfirm={confirmDelete}
+          title="Delete User"
+          description="Are you sure you want to delete this user? This action cannot be undone."
+          itemName={deleteModal.userName}
+          isLoading={isDeleting}
+        />
       </SidebarInset>
     </SidebarProvider>
   )

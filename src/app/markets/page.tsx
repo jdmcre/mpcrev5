@@ -23,36 +23,38 @@ import { supabase } from '@/lib/supabase'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Plus, MapPin, Building2, Eye, Edit, Trash2 } from 'lucide-react'
+import { Plus, MapPin, Building2, Eye, Edit, Trash2, Users } from 'lucide-react'
 import { ViewToggle } from '@/components/view-toggle'
 import { DataTable } from '@/components/ui/data-table'
 import { columns } from './columns'
+import { DeleteConfirmationModal } from '@/components/ui/delete-confirmation-modal'
 
-interface MarketWithClient extends Market {
+interface MarketWithDetails extends Market {
   client?: Client
+  propertyCount: number
 }
 
 export default function MarketsPage() {
   const router = useRouter()
-  const [markets, setMarkets] = useState<MarketWithClient[]>([])
+  const [markets, setMarkets] = useState<MarketWithDetails[]>([])
   const [loading, setLoading] = useState(true)
   const [view, setView] = useState<'cards' | 'table'>('cards')
+  const [deleteModal, setDeleteModal] = useState<{
+    isOpen: boolean
+    marketId: string
+    marketName: string
+  }>({
+    isOpen: false,
+    marketId: '',
+    marketName: ''
+  })
+  const [isDeleting, setIsDeleting] = useState(false)
 
   useEffect(() => {
     const fetchMarkets = async () => {
       try {
-        const [marketsData, clientsData] = await Promise.all([
-          DataService.getMarkets(),
-          DataService.getClients()
-        ])
-        
-        // Combine markets with client data
-        const marketsWithClients = marketsData.map(market => ({
-          ...market,
-          client: clientsData.find(client => client.id === market.client_id)
-        }))
-        
-        setMarkets(marketsWithClients)
+        const marketsWithDetails = await DataService.getMarketsWithDetails()
+        setMarkets(marketsWithDetails)
       } catch (error) {
         console.error('Error fetching markets:', error)
       } finally {
@@ -63,23 +65,41 @@ export default function MarketsPage() {
     fetchMarkets()
   }, [])
 
-  const handleDelete = async (marketId: string) => {
-    if (!confirm('Are you sure you want to delete this market?')) return
-    
+  const openDeleteModal = (marketId: string, marketName: string) => {
+    setDeleteModal({
+      isOpen: true,
+      marketId,
+      marketName
+    })
+  }
+
+  const closeDeleteModal = () => {
+    setDeleteModal({
+      isOpen: false,
+      marketId: '',
+      marketName: ''
+    })
+  }
+
+  const confirmDelete = async () => {
+    setIsDeleting(true)
     try {
       const { error } = await supabase
         .from('markets')
         .delete()
-        .eq('id', marketId)
+        .eq('id', deleteModal.marketId)
       
       if (error) throw error
       
       // Refresh the markets list
-      const updatedMarkets = markets.filter(m => m.id !== marketId)
+      const updatedMarkets = markets.filter(m => m.id !== deleteModal.marketId)
       setMarkets(updatedMarkets)
+      closeDeleteModal()
     } catch (error) {
       console.error('Error deleting market:', error)
       alert('Failed to delete market')
+    } finally {
+      setIsDeleting(false)
     }
   }
 
@@ -155,6 +175,11 @@ export default function MarketsPage() {
                             <span>{market.client?.client_type || 'Unknown Type'}</span>
                           </div>
                           
+                          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                            <Users className="h-4 w-4" />
+                            <span>{market.propertyCount} properties</span>
+                          </div>
+                          
                           {market.territory && (
                             <div className="flex items-center gap-2 text-sm text-muted-foreground">
                               <MapPin className="h-4 w-4" />
@@ -183,7 +208,7 @@ export default function MarketsPage() {
                               variant="subtle" 
                               size="icon"
                               className="text-red-600 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-950/20"
-                              onClick={() => handleDelete(market.id)}
+                              onClick={() => openDeleteModal(market.id, market.name)}
                               title="Delete"
                             >
                               <Trash2 className="h-4 w-4" />
@@ -219,6 +244,16 @@ export default function MarketsPage() {
             </CardContent>
           </Card>
         </div>
+
+        <DeleteConfirmationModal
+          isOpen={deleteModal.isOpen}
+          onClose={closeDeleteModal}
+          onConfirm={confirmDelete}
+          title="Delete Market"
+          description="Are you sure you want to delete this market? This action cannot be undone and will also remove all associated properties."
+          itemName={deleteModal.marketName}
+          isLoading={isDeleting}
+        />
       </SidebarInset>
     </SidebarProvider>
   )

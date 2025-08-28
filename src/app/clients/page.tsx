@@ -23,22 +23,38 @@ import { supabase } from '@/lib/supabase'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Plus, Building2, Mail, Phone, Globe, MapPin, Eye, Edit, Trash2 } from 'lucide-react'
+import { Plus, Building2, Mail, Phone, Globe, MapPin, Eye, Edit, Trash2, MapPinIcon } from 'lucide-react'
 import { ViewToggle } from '@/components/view-toggle'
 import { DataTable } from '@/components/ui/data-table'
 import { columns } from './columns'
+import { DeleteConfirmationModal } from '@/components/ui/delete-confirmation-modal'
+
+interface ClientWithDetails extends Client {
+  marketCount: number
+  propertyCount: number
+}
 
 export default function ClientsPage() {
   const router = useRouter()
-  const [clients, setClients] = useState<Client[]>([])
+  const [clients, setClients] = useState<ClientWithDetails[]>([])
   const [loading, setLoading] = useState(true)
   const [view, setView] = useState<'cards' | 'table'>('cards')
+  const [deleteModal, setDeleteModal] = useState<{
+    isOpen: boolean
+    clientId: string
+    clientName: string
+  }>({
+    isOpen: false,
+    clientId: '',
+    clientName: ''
+  })
+  const [isDeleting, setIsDeleting] = useState(false)
 
   useEffect(() => {
     const fetchClients = async () => {
       try {
-        const data = await DataService.getClients()
-        setClients(data)
+        const clientsWithDetails = await DataService.getClientsWithDetails()
+        setClients(clientsWithDetails)
       } catch (error) {
         console.error('Error fetching clients:', error)
       } finally {
@@ -49,23 +65,41 @@ export default function ClientsPage() {
     fetchClients()
   }, [])
 
-  const handleDelete = async (clientId: string) => {
-    if (!confirm('Are you sure you want to delete this client?')) return
-    
+  const openDeleteModal = (clientId: string, clientName: string) => {
+    setDeleteModal({
+      isOpen: true,
+      clientId,
+      clientName
+    })
+  }
+
+  const closeDeleteModal = () => {
+    setDeleteModal({
+      isOpen: false,
+      clientId: '',
+      clientName: ''
+    })
+  }
+
+  const confirmDelete = async () => {
+    setIsDeleting(true)
     try {
       const { error } = await supabase
         .from('clients')
         .delete()
-        .eq('id', clientId)
+        .eq('id', deleteModal.clientId)
       
       if (error) throw error
       
       // Refresh the clients list
-      const updatedClients = clients.filter(c => c.id !== clientId)
+      const updatedClients = clients.filter(c => c.id !== deleteModal.clientId)
       setClients(updatedClients)
+      closeDeleteModal()
     } catch (error) {
       console.error('Error deleting client:', error)
       alert('Failed to delete client')
+    } finally {
+      setIsDeleting(false)
     }
   }
 
@@ -165,6 +199,17 @@ export default function ClientsPage() {
                             </div>
                           )}
                           
+                          <div className="flex items-center gap-4 pt-2">
+                            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                              <MapPinIcon className="h-4 w-4" />
+                              <span>{client.marketCount} markets</span>
+                            </div>
+                            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                              <Building2 className="h-4 w-4" />
+                              <span>{client.propertyCount} properties</span>
+                            </div>
+                          </div>
+                          
                           {client.description && (
                             <p className="text-sm text-muted-foreground line-clamp-2">
                               {client.description}
@@ -192,7 +237,7 @@ export default function ClientsPage() {
                               variant="subtle" 
                               size="icon"
                               className="text-red-600 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-950/20"
-                              onClick={() => handleDelete(client.id)}
+                              onClick={() => openDeleteModal(client.id, client.name)}
                               title="Delete"
                             >
                               <Trash2 className="h-4 w-4" />
@@ -228,6 +273,16 @@ export default function ClientsPage() {
             </CardContent>
           </Card>
         </div>
+
+        <DeleteConfirmationModal
+          isOpen={deleteModal.isOpen}
+          onClose={closeDeleteModal}
+          onConfirm={confirmDelete}
+          title="Delete Client"
+          description="Are you sure you want to delete this client? This action cannot be undone and will also remove all associated markets and properties."
+          itemName={deleteModal.clientName}
+          isLoading={isDeleting}
+        />
       </SidebarInset>
     </SidebarProvider>
   )

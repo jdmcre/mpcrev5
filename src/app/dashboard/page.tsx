@@ -17,7 +17,7 @@ import {
   SidebarTrigger,
 } from '@/components/ui/sidebar'
 import { DataService } from '@/lib/data-service'
-import { Property } from '@/lib/supabase'
+import { Property, Market, Client } from '@/lib/supabase'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Building2, MapPin, UserCheck, Globe } from 'lucide-react'
@@ -38,10 +38,22 @@ interface DashboardStats {
   totalProperties: number
   totalUsers: number
   recentProperties: Property[]
+  marketPropertyCounts: Array<{
+    marketId: string
+    propertyCount: number
+  }>
 }
 
+interface DashboardData {
+  stats: DashboardStats | null
+  allProperties: Property[]
+}
+
+
+
 export default function Page() {
-  const [stats, setStats] = useState<DashboardStats | null>(null)
+  const [dashboardData, setDashboardData] = useState<DashboardData>({ stats: null, allProperties: [] })
+
   const [loading, setLoading] = useState(true)
   const mapContainer = useRef<HTMLDivElement>(null)
   const map = useRef<mapboxgl.Map | null>(null)
@@ -50,8 +62,13 @@ export default function Page() {
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const dashboardStats = await DataService.getDashboardStats()
-        setStats(dashboardStats)
+        const [dashboardStats, allProperties] = await Promise.all([
+          DataService.getDashboardStats(),
+          DataService.getProperties()
+        ])
+        console.log('Dashboard stats loaded:', dashboardStats)
+        console.log('All properties loaded:', allProperties.length)
+        setDashboardData({ stats: dashboardStats, allProperties })
       } catch (error) {
         console.error('Error fetching dashboard data:', error)
       } finally {
@@ -114,6 +131,7 @@ export default function Page() {
         setMapLoaded(true)
         if (map.current) {
           map.current.resize()
+          addMarkersToMap()
         }
       })
 
@@ -150,6 +168,63 @@ export default function Page() {
     }
   }, [loading]) // Add loading dependency to ensure DOM is ready
 
+  // Add markers when stats data becomes available
+  useEffect(() => {
+    if (mapLoaded && dashboardData.allProperties && map.current) {
+      addMarkersToMap()
+    }
+  }, [mapLoaded, dashboardData.allProperties])
+
+  const addMarkersToMap = () => {
+    if (!map.current || !mapLoaded || !dashboardData.allProperties) {
+      console.log('addMarkersToMap early return:', {
+        hasMap: !!map.current,
+        mapLoaded,
+        hasStats: !!dashboardData.stats,
+        hasAllProperties: !!dashboardData.allProperties,
+        allPropertiesCount: dashboardData.allProperties?.length
+      })
+      return
+    }
+
+    console.log('Adding markers to dashboard map:', dashboardData.allProperties.length, 'properties')
+    console.log('Properties with coordinates:', dashboardData.allProperties.filter(p => p.lat && p.lng).length)
+    
+    // Add property markers
+    dashboardData.allProperties.forEach((property) => {
+      if (property.lat && property.lng && map.current) {
+        // Create property marker
+        const markerEl = document.createElement('div')
+        markerEl.className = 'property-marker'
+        markerEl.style.width = '16px'
+        markerEl.style.height = '16px'
+        markerEl.style.borderRadius = '50%'
+        markerEl.style.backgroundColor = '#3b82f6'
+        markerEl.style.border = '2px solid white'
+        markerEl.style.cursor = 'pointer'
+        markerEl.style.boxShadow = '0 2px 4px rgba(0,0,0,0.3)'
+
+        // Create popup for property
+        const popup = new mapboxgl.Popup({ offset: 25 }).setHTML(`
+          <div class="p-2">
+            <h3 class="font-semibold text-sm">${property.title || property.address_line || 'Untitled Property'}</h3>
+            <p class="text-xs text-gray-600">${property.city}, ${property.state}</p>
+            ${property.base_rent_psf ? `<p class="text-xs text-gray-600">$${property.base_rent_psf}/sq ft</p>` : ''}
+            <p class="text-xs text-gray-500">Phase: ${property.phase}</p>
+          </div>
+        `)
+
+        // Add marker to map
+        new mapboxgl.Marker(markerEl)
+          .setLngLat([property.lng, property.lat])
+          .setPopup(popup)
+          .addTo(map.current)
+      }
+    })
+
+    console.log(`Added ${dashboardData.allProperties.filter(p => p.lat && p.lng).length} property markers to the map`)
+  }
+
   if (loading) {
     return (
       <SidebarProvider>
@@ -175,17 +250,9 @@ export default function Page() {
               className="mr-2 data-[orientation=vertical]:h-4"
             />
             <Breadcrumb>
-              <BreadcrumbList>
-                <BreadcrumbItem className="hidden md:block">
-                  <BreadcrumbLink href="#">
-                    Dashboard
-                  </BreadcrumbLink>
-                </BreadcrumbItem>
-                <BreadcrumbSeparator className="hidden md:block" />
-                <BreadcrumbItem>
-                  <BreadcrumbPage>Overview</BreadcrumbPage>
-                </BreadcrumbItem>
-              </BreadcrumbList>
+              <BreadcrumbItem>
+                <BreadcrumbPage>Dashboard</BreadcrumbPage>
+              </BreadcrumbItem>
             </Breadcrumb>
           </div>
         </header>
@@ -198,7 +265,7 @@ export default function Page() {
                 <Building2 className="h-4 w-4 text-muted-foreground" />
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold">{stats?.totalClients || 0}</div>
+                <div className="text-2xl font-bold">{dashboardData.stats?.totalClients || 0}</div>
               </CardContent>
             </Card>
             <Card>
@@ -207,7 +274,7 @@ export default function Page() {
                 <MapPin className="h-4 w-4 text-muted-foreground" />
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold">{stats?.totalMarkets || 0}</div>
+                <div className="text-2xl font-bold">{dashboardData.stats?.totalMarkets || 0}</div>
               </CardContent>
             </Card>
             <Card>
@@ -216,7 +283,7 @@ export default function Page() {
                 <Building2 className="h-4 w-4 text-muted-foreground" />
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold">{stats?.totalProperties || 0}</div>
+                <div className="text-2xl font-bold">{dashboardData.stats?.totalProperties || 0}</div>
               </CardContent>
             </Card>
             <Card>
@@ -225,10 +292,12 @@ export default function Page() {
                 <UserCheck className="h-4 w-4 text-muted-foreground" />
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold">{stats?.totalUsers || 0}</div>
+                <div className="text-2xl font-bold">{dashboardData.stats?.totalUsers || 0}</div>
               </CardContent>
             </Card>
           </div>
+
+
 
           {/* Mapbox Map */}
           <Card>
