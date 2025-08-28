@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { AppSidebar } from '@/components/app-sidebar'
 import {
   Breadcrumb,
@@ -20,7 +20,17 @@ import { DataService } from '@/lib/data-service'
 import { Property } from '@/lib/supabase'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
-import { Building2, MapPin, UserCheck } from 'lucide-react'
+import { Building2, MapPin, UserCheck, Globe } from 'lucide-react'
+import mapboxgl from 'mapbox-gl'
+import 'mapbox-gl/dist/mapbox-gl.css'
+
+// Ensure Mapbox CSS is loaded
+if (typeof window !== 'undefined') {
+  console.log('Mapbox CSS loaded, mapboxgl version:', mapboxgl.version)
+}
+
+// Set your Mapbox access token here
+mapboxgl.accessToken = process.env.NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN || '';
 
 interface DashboardStats {
   totalClients: number
@@ -33,6 +43,9 @@ interface DashboardStats {
 export default function Page() {
   const [stats, setStats] = useState<DashboardStats | null>(null)
   const [loading, setLoading] = useState(true)
+  const mapContainer = useRef<HTMLDivElement>(null)
+  const map = useRef<mapboxgl.Map | null>(null)
+  const [mapLoaded, setMapLoaded] = useState(false)
 
   useEffect(() => {
     const fetchData = async () => {
@@ -48,6 +61,94 @@ export default function Page() {
 
     fetchData()
   }, [])
+
+  useEffect(() => {
+    // Wait for stats to load and DOM to be ready
+    if (loading || !mapContainer.current) {
+      return
+    }
+
+    // Prevent multiple initializations
+    if (map.current) {
+      console.log('Map already exists, skipping initialization')
+      return
+    }
+
+    console.log('Mapbox access token:', mapboxgl.accessToken)
+    console.log('Token length:', mapboxgl.accessToken?.length)
+
+    if (!mapboxgl.accessToken) {
+      console.error('Mapbox access token is not set. Please set NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN in your .env file.')
+      return
+    }
+
+    if (mapboxgl.accessToken === 'YOUR_MAPBOX_ACCESS_TOKEN_HERE') {
+      console.error('Please replace the placeholder token with your actual Mapbox access token')
+      return
+    }
+
+    const container = mapContainer.current
+    if (!container) {
+      console.error('Map container not found')
+      return
+    }
+
+    console.log('Initializing map with container:', container)
+    console.log('Container dimensions:', container.offsetWidth, 'x', container.offsetHeight)
+
+    try {
+      map.current = new mapboxgl.Map({
+        container: container,
+        style: 'mapbox://styles/mapbox/streets-v12', // Standard street style
+        center: [-98.5795, 39.8283], // Center of US
+        zoom: 3.5, // Zoomed in on US
+        preserveDrawingBuffer: true, // Prevent map from disappearing
+        antialias: true, // Improve rendering quality
+      })
+
+      console.log('Map initialized successfully')
+      
+      // Add event listeners
+      map.current.on('load', () => {
+        console.log('Map loaded successfully')
+        setMapLoaded(true)
+        if (map.current) {
+          map.current.resize()
+        }
+      })
+
+      map.current.on('error', (e) => {
+        console.error('Map error:', e)
+      })
+
+      // Handle map resizing when the container changes size (e.g., sidebar collapse/expand)
+      const resizeObserver = new ResizeObserver(() => {
+        if (map.current && map.current.isStyleLoaded()) {
+          console.log('Resizing map due to container change')
+          map.current.resize()
+        }
+      })
+
+      resizeObserver.observe(container)
+
+      // Store the resize observer for cleanup
+      const cleanup = () => {
+        if (map.current) {
+          console.log('Cleaning up map')
+          map.current.remove()
+          map.current = null
+        }
+        resizeObserver.unobserve(container)
+        resizeObserver.disconnect()
+      }
+
+      // Cleanup function
+      return cleanup
+    } catch (error) {
+      console.error('Error initializing map:', error)
+      return
+    }
+  }, [loading]) // Add loading dependency to ensure DOM is ready
 
   if (loading) {
     return (
@@ -129,42 +230,38 @@ export default function Page() {
             </Card>
           </div>
 
-          {/* Recent Properties */}
+          {/* Mapbox Map */}
           <Card>
             <CardHeader>
-              <CardTitle>Recent Properties</CardTitle>
-              <CardDescription>Latest properties added to the system</CardDescription>
+              <CardTitle className="flex items-center gap-2">
+                <Globe className="h-5 w-5" />
+                Geographic Overview
+              </CardTitle>
+              <CardDescription>Interactive map showing your markets and properties across the United States</CardDescription>
             </CardHeader>
             <CardContent>
-              <div className="space-y-4">
-                {stats?.recentProperties.map((property) => (
-                  <div key={property.id} className="flex items-center justify-between p-4 border rounded-lg">
-                    <div className="flex-1">
-                      <h4 className="font-medium">{property.title || property.address_line || 'Untitled Property'}</h4>
-                      <p className="text-sm text-muted-foreground">
-                        {property.city}, {property.state} {property.postal_code}
+              <div className="flex-1 min-h-0 rounded-lg overflow-hidden border bg-gray-50">
+                <div ref={mapContainer} className="w-full h-96" />
+                {(!mapboxgl.accessToken || mapboxgl.accessToken === 'YOUR_MAPBOX_ACCESS_TOKEN_HERE') && !mapLoaded ? (
+                  <div className="absolute inset-0 flex items-center justify-center bg-gray-100">
+                    <div className="text-center p-6">
+                      <Globe className="h-12 w-12 mx-auto mb-4 text-gray-400" />
+                      <h3 className="text-lg font-medium text-gray-900 mb-2">Map Not Available</h3>
+                      <p className="text-gray-600 mb-4">
+                        {!mapboxgl.accessToken 
+                          ? 'Mapbox access token is not configured.'
+                          : 'Please set your Mapbox access token in .env.local'
+                        }
                       </p>
-                      {property.size_sqft && (
-                        <p className="text-sm text-muted-foreground">
-                          {property.size_sqft.toLocaleString()} sq ft
-                        </p>
-                      )}
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <Badge variant="secondary">{property.phase}</Badge>
-                      {property.base_rent_psf && (
-                        <Badge variant="outline">
-                          ${property.base_rent_psf}/sq ft
-                        </Badge>
-                      )}
+                      <div className="bg-yellow-50 border border-yellow-200 rounded-md p-3 text-sm text-yellow-800">
+                        <p className="font-medium">Setup Required:</p>
+                        <p>1. Get your token from <a href="https://account.mapbox.com/access-tokens/" target="_blank" rel="noopener noreferrer" className="underline">Mapbox</a></p>
+                        <p>2. Add to .env.local: NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN=your_token_here</p>
+                        <p>3. Restart the development server</p>
+                      </div>
                     </div>
                   </div>
-                ))}
-                {(!stats?.recentProperties || stats.recentProperties.length === 0) && (
-                  <div className="text-center py-8 text-muted-foreground">
-                    No properties found
-                  </div>
-                )}
+                ) : null}
               </div>
             </CardContent>
           </Card>
